@@ -1,103 +1,241 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
+import "leaflet/dist/leaflet.css";
+
+// Dynamic imports for SSR-safe Leaflet
+const MapContainer = dynamic(
+  () => import("react-leaflet").then((m) => m.MapContainer),
+  { ssr: false }
+);
+const TileLayer = dynamic(
+  () => import("react-leaflet").then((m) => m.TileLayer),
+  { ssr: false }
+);
+const Polyline = dynamic(
+  () => import("react-leaflet").then((m) => m.Polyline),
+  { ssr: false }
+);
+const CircleMarker = dynamic(
+  () => import("react-leaflet").then((m) => m.CircleMarker),
+  { ssr: false }
+);
+const Popup = dynamic(() => import("react-leaflet").then((m) => m.Popup), {
+  ssr: false,
+});
+
+const colors = [
+  "#e41a1c",
+  "#377eb8",
+  "#4daf4a",
+  "#984ea3",
+  "#ff7f00",
+  "#ffff33",
+  "#a65628",
+  "#f781bf",
+  "#999999",
+  "#66c2a5",
+  "#fc8d62",
+  "#8da0cb",
+  "#e78ac3",
+  "#a6d854",
+  "#ffd92f",
+  "#e5c494",
+  "#b3b3b3",
+  "#1b9e77",
+  "#d95f02",
+  "#7570b3",
+  "#66a61e",
+  "#e7298a",
+  "#a6761d",
+  "#666666",
+];
+
+export default function WindborneAtlas() {
+  const [flights, setFlights] = useState<Record<string, any[]>>({});
+  const [loading, setLoading] = useState(true);
+  const [currentHourPointer, setCurrentHourPointer] = useState(0);
+  const [visiblePoints, setVisiblePoints] = useState<any[]>([]);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => setIsClient(true), []);
+
+  // Fetch flight data from API
+  useEffect(() => {
+    let mounted = true;
+    async function fetchFlights() {
+      try {
+        const res = await fetch("/api/flights");
+        const data = await res.json();
+        if (!mounted) return;
+        setFlights(data);
+      } catch (e) {
+        console.warn("Failed to fetch flights:", e);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+    fetchFlights();
+    const interval = setInterval(fetchFlights, 30000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  // Animate hour-by-hour trajectories
+  useEffect(() => {
+    const hourKeys = Object.keys(flights).filter((k) => flights[k]?.length > 0);
+    if (hourKeys.length === 0) return;
+
+    let pointer = currentHourPointer % hourKeys.length;
+
+    function animateHour() {
+      const hourKey = hourKeys[pointer];
+      const track = flights[hourKey];
+      if (!track || track.length === 0) {
+        pointer++;
+        setTimeout(animateHour, 5000);
+        return;
+      }
+
+      setVisiblePoints([]);
+      let idx = 0;
+
+      const interval = setInterval(() => {
+        idx++;
+        if (idx > track.length) {
+          setVisiblePoints(track);
+          clearInterval(interval);
+          pointer++;
+          setTimeout(animateHour, 5000); // show next hour after 5 sec
+          setCurrentHourPointer(pointer);
+        } else {
+          setVisiblePoints(track.slice(0, idx));
+        }
+      }, 200);
+    }
+
+    animateHour();
+  }, [flights]);
+
+  if (!isClient) return <div>Loading map…</div>;
+
+  const hourKeys = Object.keys(flights).filter((k) => flights[k]?.length > 0);
+  const hourKey = hourKeys[currentHourPointer % hourKeys.length];
+  const currentPoints = flights[hourKey] || [];
+  const firstPoint = currentPoints[0] || { lat: 20, lon: 0 };
+  const latestPoint = visiblePoints[visiblePoints.length - 1];
+
+  const actualHour = hourKey ? parseInt(hourKey.split("_")[1], 10) : 0;
+  const color = colors[actualHour % colors.length];
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="min-h-screen">
+      <header className="p-4 bg-slate-900 text-white">
+        <h1 className="text-2xl">WindBorne Atlas — Live Constellation</h1>
+        <p className="text-sm opacity-80">
+          Animating one hour at a time. Each hour highlighted with a bright
+          color.
+        </p>
+      </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      <main className="p-4">
+        {loading && <div>Loading constellation data…</div>}
+
+        <div className="w-full h-[60vh] mb-4">
+          <MapContainer
+            key={`map-${actualHour}`}
+            center={[firstPoint.lat, firstPoint.lon]}
+            zoom={3}
+            style={{ height: "100%", width: "100%" }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            <TileLayer
+              attribution="&copy; OpenStreetMap contributors"
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+
+            {visiblePoints.length > 0 && (
+              <>
+                <Polyline
+                  positions={visiblePoints.map((p) => [p.lat, p.lon])}
+                  color={color}
+                  pathOptions={{ weight: 4 }}
+                />
+                {latestPoint && (
+                  <CircleMarker
+                    center={[latestPoint.lat, latestPoint.lon]}
+                    radius={8}
+                    color={color}
+                    fillOpacity={0.8}
+                  >
+                    <Popup>
+                      <div style={{ minWidth: 220 }}>
+                        <b>Hour:</b> {actualHour}
+                        <br />
+                        <b>Latest:</b> {latestPoint.lat.toFixed(4)},{" "}
+                        {latestPoint.lon.toFixed(4)}
+                        <br />
+                        {latestPoint.time && (
+                          <>
+                            <b>Time:</b> {latestPoint.time}
+                            <br />
+                          </>
+                        )}
+                      </div>
+                    </Popup>
+                  </CircleMarker>
+                )}
+              </>
+            )}
+          </MapContainer>
         </div>
+
+        <section>
+          <h2 className="text-lg mb-2" style={{ color }}>
+            Current Hour ({actualHour}) Flight Data
+          </h2>
+          {currentPoints.length === 0 ? (
+            <div>No points for this hour</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="border-collapse border border-gray-400 w-full text-left">
+                <thead>
+                  <tr>
+                    <th className="border border-gray-400 px-2 py-1">#</th>
+                    <th className="border border-gray-400 px-2 py-1">
+                      Latitude
+                    </th>
+                    <th className="border border-gray-400 px-2 py-1">
+                      Longitude
+                    </th>
+                    <th className="border border-gray-400 px-2 py-1">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentPoints.map((p, i) => (
+                    <tr key={`${p.lat}_${p.lon}_${i}`}>
+                      <td className="border border-gray-400 px-2 py-1">
+                        {i + 1}
+                      </td>
+                      <td className="border border-gray-400 px-2 py-1">
+                        {p.lat.toFixed(4)}
+                      </td>
+                      <td className="border border-gray-400 px-2 py-1">
+                        {p.lon.toFixed(4)}
+                      </td>
+                      <td className="border border-gray-400 px-2 py-1">
+                        {p.time || "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
