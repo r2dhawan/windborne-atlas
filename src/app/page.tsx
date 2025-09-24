@@ -134,10 +134,10 @@ export default function WindborneAtlas() {
   return (
     <div className="min-h-screen">
       <header className="p-4 bg-slate-900 text-white">
-        <h1 className="text-2xl">WindBorne Atlas — Live Constellation</h1>
+        <h1 className="text-2xl">WindBorne Atlas — Live Constellation- Rudraksh Dhawan- University of Waterloo</h1>
         <p className="text-sm opacity-80">
           Animating one hour at a time. Each hour highlighted with a bright
-          color.
+          color. Some data versions from the API are corrupted because of which map fluctuates.
         </p>
       </header>
 
