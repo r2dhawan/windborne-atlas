@@ -194,7 +194,7 @@ export default function WindborneAtlas() {
 
         <section>
           <h2 className="text-lg mb-2" style={{ color }}>
-            Current Hour ({actualHour}) Flight Data
+            Current Hour ({actualHour}) (API version eg. 01,..,23) Flight Data
           </h2>
           {currentPoints.length === 0 ? (
             <div>No points for this hour</div>
